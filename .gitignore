@@ -1,0 +1,4 @@
+# ignored files with sensitive details
+wifi-secrets.h
+
+influx-db-secrets.h
