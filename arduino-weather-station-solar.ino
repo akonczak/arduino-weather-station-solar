@@ -1,3 +1,6 @@
+#define SERIAL_SPEED     115200  // serial baud rate
+
+
 #include "wifi-secrets.h"
 #include "influx-db-secrets.h"
 #include <WiFiMulti.h>
@@ -11,10 +14,27 @@ WiFiMulti wifiMulti;
 InfluxDBClient client(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
 
 // Data point
-Point sensor("wifi_status");
+Point sensor("weather");
+
+
+#include <Wire.h>
+#include <INA3221.h>
+
+#define PRINT_DEC_POINTS 3       // decimal points to print
+
+
+//INA3221_ADDR40_GND - you can setup a diffrentet addresses base on left side pins - def is x40
+INA3221 ina_0(INA3221_ADDR40_GND);
+
+
+#include <DHT.h>
+#define DHT_SENSOR_PIN  18 // ESP32 pin GIOP21 connected to DHT22 sensor
+#define UP_PIN  17 // power up all bits
+#define DHT_SENSOR_TYPE DHT22
+DHT dht_sensor(DHT_SENSOR_PIN, DHT_SENSOR_TYPE);
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(SERIAL_SPEED);
 
   // Setup wifi
   WiFi.mode(WIFI_STA);
@@ -27,9 +47,22 @@ void setup() {
   }
   Serial.println();
 
+  //power sensors 
+  //pinMode(4, OUTPUT);
+  //digitalWrite(4, HIGH);
+  pinMode(UP_PIN, OUTPUT);
+  digitalWrite(UP_PIN, HIGH);
+
+  dht_sensor.begin(); 
+  
+  ina_0.begin(&Wire);
+  ina_0.reset();
+  ina_0.setShuntRes(100, 100, 100);
+  
+
   // Add tags
-  sensor.addTag("device", DEVICE);
-  sensor.addTag("SSID", WiFi.SSID());
+  //sensor.addTag("device", DEVICE);
+  //sensor.addTag("SSID", WiFi.SSID());
 
   // Alternatively, set insecure connection to skip server certificate validation
   //client.setInsecure();
@@ -50,10 +83,41 @@ void setup() {
 }
 
 void loop() {
+
+
+  // read humidity
+  float humi  = dht_sensor.readHumidity();
+  // read temperature in Celsius
+  float tempC = dht_sensor.readTemperature();
+
+  //solar
+  float a1 = ina_0.getCurrent(INA3221_CH1) * 1000;
+  float v1 = ina_0.getVoltage(INA3221_CH1);
+  //esp 32
+  float a2 = ina_0.getCurrent(INA3221_CH2) * 1000;
+  float v2 = ina_0.getVoltage(INA3221_CH2);
+  //battery 
+  float a3 = ina_0.getCurrent(INA3221_CH3) * 1000;
+  float v3 = ina_0.getVoltage(INA3221_CH3);
+  
+  
   // Store measured value into point
   sensor.clearFields();
-  // Report RSSI of currently connected network
-  sensor.addField("rssi", WiFi.RSSI());
+  
+  // Store values
+  
+  sensor.addField("temperature", tempC);
+  sensor.addField("humidity", humi);
+  
+  sensor.addField("solar-current", a1);
+  sensor.addField("solar-voltage", v1);
+
+  sensor.addField("esp32-current", a2);
+  sensor.addField("esp32-voltage", v2);
+
+  sensor.addField("battery-current", a3);
+  sensor.addField("battery-voltage", v3);    
+  
   // Print what are we exactly writing
   Serial.print("Writing: ");
   Serial.println(client.pointToLineProtocol(sensor));
